@@ -1,0 +1,32 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "dependencies": ["."],
+  "graphs": {
+    "agent": "deep_agent.graph:get_agent",
+    "react_agent": "deep_agent.fleet:react_agent",
+    "retrieval_agent": "deep_agent.fleet:retrieval_agent",
+    "rag_research": "deep_agent.fleet:rag_research",
+    "downloading_agents": "deep_agent.fleet:downloading_agents",
+    "deploy_mcp_docs_agent": "deep_agent.fleet:deploy_mcp_docs_agent",
+    "deploy_coding_agent": "deep_agent.fleet:deploy_coding_agent",
+    "async_subagent_server": "deep_agent.fleet:async_subagent_server",
+    "deep_research": "deep_agent.fleet:deep_research",
+    "llm_wiki": "deep_agent.fleet:llm_wiki"
+  },
+  "env": ".env",
+  "image_distro": "wolfi",
+  "store": {
+    "ttl": {
+      "refresh_on_read": true,
+      "sweep_interval_minutes": 60,
+      "default_ttl": 129600
+    }
+  },
+  "checkpointer": {
+    "ttl": {
+      "strategy": "delete",
+      "sweep_interval_minutes": 60,
+      "default_ttl": 43200
+    }
+  }
+}
