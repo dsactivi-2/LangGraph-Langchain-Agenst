@@ -7,6 +7,7 @@ import textwrap
 import urllib.error
 import urllib.parse
 import urllib.request
+import json
 from datetime import datetime, timezone
 
 from deepagents import create_deep_agent
@@ -85,6 +86,69 @@ DOC_SOURCES = [
     "https://docs.langchain.com/langsmith/assistants",
     "https://docs.langchain.com/langsmith/cli",
     "https://docs.langchain.com/llms.txt",
+]
+
+PACKAGABLE_AGENT_CATALOG = [
+    {
+        "graph_id": "agent",
+        "label": "Main Deep Agent",
+        "package_fit": "good",
+        "notes": "General production-oriented Deep Agent with researcher and critic subagents.",
+    },
+    {
+        "graph_id": "react_agent",
+        "label": "React Agent",
+        "package_fit": "good",
+        "notes": "Minimal LangChain tool-calling baseline; useful as a small starter package.",
+    },
+    {
+        "graph_id": "retrieval_agent",
+        "label": "Retrieval Agent",
+        "package_fit": "good",
+        "notes": "Project-context retrieval agent; should be upgraded with a real document index for production.",
+    },
+    {
+        "graph_id": "rag_research",
+        "label": "RAG Research Agent",
+        "package_fit": "good",
+        "notes": "Retrieval plus allowed-doc fetching; good base for docs-grounded research packages.",
+    },
+    {
+        "graph_id": "downloading_agents",
+        "label": "Downloading Agents Packaging Advisor",
+        "package_fit": "partial",
+        "notes": "Packaging advisor itself; useful for creating package manifests, not for real file export yet.",
+    },
+    {
+        "graph_id": "deploy_mcp_docs_agent",
+        "label": "Deploy MCP Docs Agent",
+        "package_fit": "good",
+        "notes": "Official-docs researcher for LangChain, LangGraph, Deep Agents, and LangSmith deployment.",
+    },
+    {
+        "graph_id": "deploy_coding_agent",
+        "label": "Deploy Coding Agent",
+        "package_fit": "good",
+        "notes": "Guarded coding and deployment planner with code-review subagent.",
+    },
+    {
+        "graph_id": "async_subagent_server",
+        "label": "Async Subagent Server Architect",
+        "package_fit": "partial",
+        "notes": "Architecture advisor; needs real remote subagent server code before packaging as runnable service.",
+    },
+    {
+        "graph_id": "deep_research",
+        "label": "Deep Research",
+        "package_fit": "good",
+        "notes": "Research planner with researcher and critic subagents plus approved web fetch.",
+    },
+    {
+        "graph_id": "llm_wiki",
+        "label": "LLM Wiki",
+        "package_fit": "partial",
+        "notes": "Persistent wiki maintainer; needs a clearer import/export story for durable memories.",
+    },
 ]
 
 
@@ -255,6 +319,50 @@ def validate_downloadable_agent_layout(file_listing: str) -> str:
     return "\n".join(lines)
 
 
+@tool
+def list_packagable_agents() -> str:
+    """List the graph agents currently deployed in this project and their packaging readiness."""
+    return json.dumps(PACKAGABLE_AGENT_CATALOG, ensure_ascii=False, indent=2)
+
+
+@tool
+def build_agent_package_manifest(graph_id: str) -> str:
+    """Create a JSON manifest string for one known graph agent package."""
+    match = next(
+        (item for item in PACKAGABLE_AGENT_CATALOG if item["graph_id"] == graph_id),
+        None,
+    )
+    if match is None:
+        known = ", ".join(item["graph_id"] for item in PACKAGABLE_AGENT_CATALOG)
+        return f"Unknown graph_id '{graph_id}'. Known graph IDs: {known}"
+
+    manifest = {
+        "name": match["label"],
+        "graph_id": match["graph_id"],
+        "version": "0.1.0",
+        "package_type": "langgraph-agent",
+        "status": match["package_fit"],
+        "description": match["notes"],
+        "recommended_files": [
+            "AGENTS.md",
+            "agent.json",
+            "README.md",
+            "requirements.txt or pyproject.toml",
+            "src/",
+            "tests/",
+        ],
+        "exclude": [
+            ".env",
+            ".venv/",
+            "__pycache__/",
+            ".pytest_cache/",
+            ".ruff_cache/",
+            "API keys, tokens, and private credentials",
+        ],
+    }
+    return json.dumps(manifest, ensure_ascii=False, indent=2)
+
+
 def _prompt(title: str, body: str) -> str:
     return textwrap.dedent(
         f"""
@@ -311,15 +419,25 @@ rag_research = create_agent(
 )
 
 downloading_agents = create_deep_agent(
-    model=DEFAULT_MODEL,
-    tools=[utc_now, validate_downloadable_agent_layout],
+    model=CODING_MODEL,
+    tools=[
+        utc_now,
+        validate_downloadable_agent_layout,
+        list_packagable_agents,
+        build_agent_package_manifest,
+    ],
     backend=_build_backend("downloading_agents"),
     system_prompt=_prompt(
         "a Deep Agents packaging advisor based on the downloading_agents example",
         (
-            "Help package agents as folders or zip archives. Explain AGENTS.md, skills, "
-            "subagents, agent.json, and what should or should not be included. Use "
-            "/memories/ only for reusable packaging rules, never for secrets."
+            "Help package agents as folders or zip archives. Use list_packagable_agents "
+            "to inspect the agents available in this deployed project; do not infer project "
+            "contents from ls('/') because the Deep Agents filesystem is virtual and may only "
+            "contain /memories/. Explain AGENTS.md, skills, subagents, agent.json, and what "
+            "should or should not be included. If you write JSON files with write_file, the "
+            "content argument must always be a JSON string, never a Python dict/object. If a "
+            "write_file call fails once, stop retrying the same call and explain the fix. Use "
+            "/memories/ only for short reusable packaging rules, never for package output or secrets."
         ),
     ),
     interrupt_on={"write_file": True, "edit_file": True},
