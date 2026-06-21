@@ -20,6 +20,7 @@ RESEARCH_MODEL = os.getenv("DEEP_AGENT_RESEARCH_MODEL", DEFAULT_MODEL)
 CODING_MODEL = os.getenv("DEEP_AGENT_CODING_MODEL", "ollama:kimi-k2.7-code:cloud")
 CRITIC_MODEL = os.getenv("DEEP_AGENT_CRITIC_MODEL", CODING_MODEL)
 MEMORY_NAMESPACE = os.getenv("DEEP_AGENT_MEMORY_NAMESPACE", "first-deep-agent")
+PACKAGE_VERSION = os.getenv("AGENT_PACKAGE_VERSION", "0.2.0")
 
 ALLOWED_FETCH_DOMAINS = {
     "docs.langchain.com",
@@ -88,68 +89,115 @@ DOC_SOURCES = [
     "https://docs.langchain.com/llms.txt",
 ]
 
-PACKAGABLE_AGENT_CATALOG = [
+PRODUCTION_RULES = """
+Production operating rules:
+- Start by identifying the user's goal, the active graph role, and the evidence you have.
+- Prefer tool-backed facts over memory or assumptions. If evidence is missing, say what is missing.
+- Do not claim local filesystem, shell, VPS, browser, or private repository access from this cloud graph.
+- Never ask the user to paste secrets. Refer to secret names only.
+- For deploys, writes, account changes, billing, DNS, or infrastructure: produce discovery, preflight, dry-run, approval, apply, and post-check steps.
+- Stop after one repeated tool failure. Explain the failure and the exact next corrective action instead of retrying the same call.
+- Keep durable memory under /memories/ short, factual, and reusable. Do not store transient package output there.
+- When writing files through Deep Agents tools, content must be plain text. JSON/YAML must be serialized as a string first.
+- Keep final answers concise and action-oriented; include uncertainty and residual risk.
+""".strip()
+
+PRODUCTION_READINESS_CRITERIA = [
+    "clear role and scope",
+    "explicit tool boundaries",
+    "source-grounded answers when facts matter",
+    "safe handling of secrets and infrastructure actions",
+    "loop prevention after repeated tool errors",
+    "memory isolation under /memories/",
+    "subagent use only for focused work with complete instructions",
+    "human approval for external web fetches or file writes",
+]
+
+PACKAGEABLE_AGENT_CATALOG = [
     {
         "graph_id": "agent",
         "label": "Main Deep Agent",
-        "package_fit": "good",
-        "notes": "General production-oriented Deep Agent with researcher and critic subagents.",
+        "package_fit": "production-ready",
+        "primary_model": DEFAULT_MODEL,
+        "subagents": ["researcher", "critic"],
+        "notes": "General production-oriented Deep Agent with planning, memory, researcher, and critic subagents.",
     },
     {
         "graph_id": "react_agent",
         "label": "React Agent",
-        "package_fit": "good",
-        "notes": "Minimal LangChain tool-calling baseline; useful as a small starter package.",
+        "package_fit": "production-starter",
+        "primary_model": DEFAULT_MODEL,
+        "subagents": [],
+        "notes": "Small LangChain tool-calling baseline for arithmetic, time, and project-context questions.",
     },
     {
         "graph_id": "retrieval_agent",
         "label": "Retrieval Agent",
-        "package_fit": "good",
-        "notes": "Project-context retrieval agent; should be upgraded with a real document index for production.",
+        "package_fit": "production-starter",
+        "primary_model": DEFAULT_MODEL,
+        "subagents": [],
+        "notes": "Project-context retrieval agent. Production limitation: current retrieval source is curated project notes, not yet a vector index.",
     },
     {
         "graph_id": "rag_research",
         "label": "RAG Research Agent",
-        "package_fit": "good",
-        "notes": "Retrieval plus allowed-doc fetching; good base for docs-grounded research packages.",
+        "package_fit": "production-ready-for-docs",
+        "primary_model": DEFAULT_MODEL,
+        "subagents": [],
+        "notes": "Retrieval plus allowed official-doc fetching for docs-grounded research.",
     },
     {
         "graph_id": "downloading_agents",
         "label": "Downloading Agents Packaging Advisor",
-        "package_fit": "partial",
-        "notes": "Packaging advisor itself; useful for creating package manifests, not for real file export yet.",
+        "package_fit": "production-ready-for-manifests",
+        "primary_model": CODING_MODEL,
+        "subagents": [],
+        "notes": "Packaging advisor that can inspect known project agents and draft package manifests. It does not create downloadable ZIP files in cloud mode.",
     },
     {
         "graph_id": "deploy_mcp_docs_agent",
         "label": "Deploy MCP Docs Agent",
-        "package_fit": "good",
+        "package_fit": "production-ready",
+        "primary_model": DEFAULT_MODEL,
+        "subagents": ["docs-researcher", "docs-critic"],
         "notes": "Official-docs researcher for LangChain, LangGraph, Deep Agents, and LangSmith deployment.",
     },
     {
         "graph_id": "deploy_coding_agent",
         "label": "Deploy Coding Agent",
-        "package_fit": "good",
-        "notes": "Guarded coding and deployment planner with code-review subagent.",
+        "package_fit": "production-ready-for-planning",
+        "primary_model": CODING_MODEL,
+        "subagents": ["code-reviewer", "release-manager"],
+        "notes": "Guarded coding and deployment planner. It drafts plans and checks but cannot directly change real infrastructure from cloud mode.",
     },
     {
         "graph_id": "async_subagent_server",
         "label": "Async Subagent Server Architect",
-        "package_fit": "partial",
-        "notes": "Architecture advisor; needs real remote subagent server code before packaging as runnable service.",
+        "package_fit": "production-ready-for-architecture",
+        "primary_model": DEFAULT_MODEL,
+        "subagents": ["api-reviewer"],
+        "notes": "Architecture advisor for remote subagent servers, API boundaries, queues, and observability.",
     },
     {
         "graph_id": "deep_research",
         "label": "Deep Research",
-        "package_fit": "good",
-        "notes": "Research planner with researcher and critic subagents plus approved web fetch.",
+        "package_fit": "production-ready",
+        "primary_model": RESEARCH_MODEL,
+        "subagents": ["researcher", "critic"],
+        "notes": "Research planner with source-review and critic subagents plus approved external web fetch.",
     },
     {
         "graph_id": "llm_wiki",
         "label": "LLM Wiki",
-        "package_fit": "partial",
-        "notes": "Persistent wiki maintainer; needs a clearer import/export story for durable memories.",
+        "package_fit": "production-ready-for-memory-notes",
+        "primary_model": DEFAULT_MODEL,
+        "subagents": ["wiki-auditor"],
+        "notes": "Persistent project wiki maintainer for short factual notes under /memories/wiki/.",
     },
 ]
+
+# Backward-compatible alias for existing callers and old threads.
+PACKAGABLE_AGENT_CATALOG = PACKAGEABLE_AGENT_CATALOG
 
 
 def _compact(text: str, limit: int = 8000) -> str:
@@ -226,6 +274,37 @@ def retrieve_project_context(query: str, k: int = 3) -> str:
     if not selected:
         selected = [text for _, text in scored[: max(1, min(k, len(scored)))]]
     return "\n\n".join(selected)
+
+
+@tool
+def list_agent_fleet() -> str:
+    """List all graph agents in this deployment with models, subagents, and readiness status."""
+    return json.dumps(PACKAGEABLE_AGENT_CATALOG, ensure_ascii=False, indent=2)
+
+
+@tool
+def agent_readiness_report(graph_id: str = "all") -> str:
+    """Return a production-readiness report for one graph ID or the whole fleet."""
+    selected = (
+        PACKAGEABLE_AGENT_CATALOG
+        if graph_id == "all"
+        else [item for item in PACKAGEABLE_AGENT_CATALOG if item["graph_id"] == graph_id]
+    )
+    if not selected:
+        known = ", ".join(item["graph_id"] for item in PACKAGEABLE_AGENT_CATALOG)
+        return f"Unknown graph_id '{graph_id}'. Known graph IDs: {known}"
+
+    report = {
+        "readiness_criteria": PRODUCTION_READINESS_CRITERIA,
+        "agents": selected,
+        "global_limitations": [
+            "Cloud graphs do not have direct Mac/VPS shell access.",
+            "retrieval_agent currently uses curated project notes, not a full vector database.",
+            "downloadable ZIP export requires an external build/export step outside the cloud graph.",
+            "Cloud deployment updates require a LangSmith key with deployment permissions.",
+        ],
+    }
+    return json.dumps(report, ensure_ascii=False, indent=2)
 
 
 @tool
@@ -322,26 +401,34 @@ def validate_downloadable_agent_layout(file_listing: str) -> str:
 @tool
 def list_packagable_agents() -> str:
     """List the graph agents currently deployed in this project and their packaging readiness."""
-    return json.dumps(PACKAGABLE_AGENT_CATALOG, ensure_ascii=False, indent=2)
+    return json.dumps(PACKAGEABLE_AGENT_CATALOG, ensure_ascii=False, indent=2)
+
+
+@tool
+def list_packageable_agents() -> str:
+    """List the graph agents currently deployed in this project and their packaging readiness."""
+    return json.dumps(PACKAGEABLE_AGENT_CATALOG, ensure_ascii=False, indent=2)
 
 
 @tool
 def build_agent_package_manifest(graph_id: str) -> str:
     """Create a JSON manifest string for one known graph agent package."""
     match = next(
-        (item for item in PACKAGABLE_AGENT_CATALOG if item["graph_id"] == graph_id),
+        (item for item in PACKAGEABLE_AGENT_CATALOG if item["graph_id"] == graph_id),
         None,
     )
     if match is None:
-        known = ", ".join(item["graph_id"] for item in PACKAGABLE_AGENT_CATALOG)
+        known = ", ".join(item["graph_id"] for item in PACKAGEABLE_AGENT_CATALOG)
         return f"Unknown graph_id '{graph_id}'. Known graph IDs: {known}"
 
     manifest = {
         "name": match["label"],
         "graph_id": match["graph_id"],
-        "version": "0.1.0",
+        "version": PACKAGE_VERSION,
         "package_type": "langgraph-agent",
         "status": match["package_fit"],
+        "primary_model": match["primary_model"],
+        "subagents": match["subagents"],
         "description": match["notes"],
         "recommended_files": [
             "AGENTS.md",
@@ -353,11 +440,20 @@ def build_agent_package_manifest(graph_id: str) -> str:
         ],
         "exclude": [
             ".env",
+            ".env.*",
             ".venv/",
+            "node_modules/",
             "__pycache__/",
             ".pytest_cache/",
             ".ruff_cache/",
             "API keys, tokens, and private credentials",
+        ],
+        "preflight_checks": [
+            "validate langgraph.json graph entry exists",
+            "run unit tests",
+            "run lint",
+            "verify environment variable names without printing values",
+            "create a rollback note with previous deployment revision",
         ],
     }
     return json.dumps(manifest, ensure_ascii=False, indent=2)
@@ -371,6 +467,9 @@ def _prompt(title: str, body: str) -> str:
         {body}
 
         General rules:
+        {PRODUCTION_RULES}
+
+        Role-specific rules:
         - Be practical, concise, and explicit about uncertainty.
         - Prefer official LangChain/LangGraph/Deep Agents/LangSmith documentation.
         - Never invent secrets, credentials, deployment IDs, or account data.
@@ -381,12 +480,21 @@ def _prompt(title: str, body: str) -> str:
 
 react_agent = create_agent(
     model=DEFAULT_MODEL,
-    tools=[utc_now, add_numbers, multiply_numbers, retrieve_project_context],
+    tools=[
+        utc_now,
+        add_numbers,
+        multiply_numbers,
+        retrieve_project_context,
+        list_agent_fleet,
+        agent_readiness_report,
+    ],
     system_prompt=_prompt(
         "a React-style tool-calling LangChain agent",
         (
-            "Use a simple think-act-observe loop. Call tools when arithmetic, time, "
-            "or project facts are needed. This graph is the minimal baseline agent."
+            "Use a simple think-act-observe loop with a maximum of three tool calls unless "
+            "the user explicitly asks for more. Call tools for arithmetic, time, project facts, "
+            "fleet status, or readiness checks. If a requested action belongs to a specialized "
+            "agent, name the better graph instead of pretending to do that work here."
         ),
     ),
     name="react_agent",
@@ -394,12 +502,19 @@ react_agent = create_agent(
 
 retrieval_agent = create_agent(
     model=DEFAULT_MODEL,
-    tools=[retrieve_project_context, list_langchain_doc_sources],
+    tools=[
+        retrieve_project_context,
+        list_langchain_doc_sources,
+        list_agent_fleet,
+        agent_readiness_report,
+    ],
     system_prompt=_prompt(
         "a retrieval-focused LangChain agent",
         (
-            "Answer from retrieved project context first. If the context is insufficient, "
-            "say what source should be added to the knowledge base."
+            "Answer from retrieved project context first and label answers as 'confirmed from "
+            "project notes' or 'not in current knowledge base'. If the context is insufficient, "
+            "say exactly which source should be indexed next. Do not claim full RAG/vector-DB "
+            "coverage until an external index is attached."
         ),
     ),
     name="retrieval_agent",
@@ -407,12 +522,20 @@ retrieval_agent = create_agent(
 
 rag_research = create_agent(
     model=DEFAULT_MODEL,
-    tools=[retrieve_project_context, list_langchain_doc_sources, fetch_allowed_url],
+    tools=[
+        retrieve_project_context,
+        list_langchain_doc_sources,
+        fetch_allowed_url,
+        list_agent_fleet,
+        agent_readiness_report,
+    ],
     system_prompt=_prompt(
         "a RAG research LangChain agent",
         (
             "Combine retrieval with live source fetching from allowed documentation URLs. "
-            "Use retrieved context to decide what to fetch, then summarize grounded findings."
+            "Use retrieved context to decide what to fetch, then summarize grounded findings. "
+            "Cite fetched URLs. If a fetch is blocked or irrelevant, stop after one attempt and "
+            "explain the missing source."
         ),
     ),
     name="rag_research",
@@ -424,6 +547,9 @@ downloading_agents = create_deep_agent(
         utc_now,
         validate_downloadable_agent_layout,
         list_packagable_agents,
+        list_packageable_agents,
+        list_agent_fleet,
+        agent_readiness_report,
         build_agent_package_manifest,
     ],
     backend=_build_backend("downloading_agents"),
@@ -446,36 +572,56 @@ downloading_agents = create_deep_agent(
 
 deploy_mcp_docs_agent = create_deep_agent(
     model=DEFAULT_MODEL,
-    tools=[utc_now, list_langchain_doc_sources, fetch_allowed_url],
+    tools=[
+        utc_now,
+        list_langchain_doc_sources,
+        fetch_allowed_url,
+        list_agent_fleet,
+        agent_readiness_report,
+    ],
     backend=_build_backend("deploy_mcp_docs_agent"),
     system_prompt=_prompt(
         "a Deep Agents documentation researcher for LangChain, LangGraph, and Deep Agents",
         (
             "Before answering framework or deployment questions, identify relevant official docs, "
-            "fetch allowed sources when useful, and separate confirmed facts from assumptions."
+            "fetch allowed sources when useful, and separate confirmed facts from assumptions. "
+            "For CLI, deployment, memory, or Agent Server behavior, prefer docs.langchain.com "
+            "evidence over memory."
         ),
     ),
     subagents=[
         {
             "name": "docs-researcher",
             "description": "Research official docs and return compact evidence.",
+            "model": RESEARCH_MODEL,
             "system_prompt": "Use official docs first. Return URLs, facts, and uncertainty.",
             "tools": [list_langchain_doc_sources, fetch_allowed_url],
-        }
+        },
+        {
+            "name": "docs-critic",
+            "description": "Check whether an answer is actually supported by official docs.",
+            "model": CRITIC_MODEL,
+            "system_prompt": (
+                "Identify unsupported claims, missing docs links, version ambiguity, and "
+                "places where the answer should say 'unknown'."
+            ),
+            "tools": [utc_now],
+        },
     ],
     name="deploy_mcp_docs_agent",
 )
 
 deploy_coding_agent = create_deep_agent(
     model=CODING_MODEL,
-    tools=[utc_now, retrieve_project_context],
+    tools=[utc_now, retrieve_project_context, list_agent_fleet, agent_readiness_report],
     backend=_build_backend("deploy_coding_agent"),
     system_prompt=_prompt(
         "a guarded Deep Agents coding and deployment planner",
         (
             "Plan code changes, tests, deployment steps, and rollback checks. You may use the "
             "virtual Deep Agents filesystem for drafts, but you do not have direct shell or VPS "
-            "control in this cloud graph. Require human approval before real infrastructure changes."
+            "control in this cloud graph. Require human approval before real infrastructure changes. "
+            "For every implementation plan, include files to inspect, tests to run, and rollback."
         ),
     ),
     subagents=[
@@ -485,7 +631,17 @@ deploy_coding_agent = create_deep_agent(
             "model": CRITIC_MODEL,
             "system_prompt": "Find missing tests, unsafe deploy assumptions, and rollback gaps.",
             "tools": [retrieve_project_context],
-        }
+        },
+        {
+            "name": "release-manager",
+            "description": "Review deployment, rollback, and post-deploy verification plans.",
+            "model": CRITIC_MODEL,
+            "system_prompt": (
+                "Check release sequencing: discovery, preflight, dry-run, approval, deploy, "
+                "post-check, rollback. Flag any missing owner or secret boundary."
+            ),
+            "tools": [retrieve_project_context, agent_readiness_report],
+        },
     ],
     interrupt_on={"write_file": True, "edit_file": True},
     name="deploy_coding_agent",
@@ -493,16 +649,29 @@ deploy_coding_agent = create_deep_agent(
 
 async_subagent_server = create_deep_agent(
     model=DEFAULT_MODEL,
-    tools=[utc_now, retrieve_project_context],
+    tools=[utc_now, retrieve_project_context, list_agent_fleet, agent_readiness_report],
     backend=_build_backend("async_subagent_server"),
     system_prompt=_prompt(
         "an async subagent server architect",
         (
             "Help design self-hosted Agent Protocol subagent servers and supervisors. "
             "Explain when to split a subagent into a remote service, what API boundaries matter, "
-            "and how to test async delegation."
+            "and how to test async delegation. Always include auth, queue/backpressure, timeout, "
+            "idempotency, observability, and failure-mode notes."
         ),
     ),
+    subagents=[
+        {
+            "name": "api-reviewer",
+            "description": "Review async server API contracts and production failure modes.",
+            "model": CRITIC_MODEL,
+            "system_prompt": (
+                "Review remote-agent designs for auth, retries, cancellation, streaming, "
+                "idempotency, schema versioning, and observability gaps."
+            ),
+            "tools": [agent_readiness_report],
+        }
+    ],
     name="async_subagent_server",
 )
 
@@ -522,7 +691,8 @@ deep_research = create_deep_agent(
             "in temporary files, and synthesize final answers with citations or source URLs. "
             "For non-LangChain external sources, first explain the exact URL and reason, then "
             "call fetch_approved_web_url so the human can approve or reject the access. Never "
-            "ask for real passwords or API keys in chat."
+            "ask for real passwords or API keys in chat. Separate findings into confirmed, "
+            "likely, and unknown. Do not use more than one failed fetch for the same URL."
         ),
     ),
     subagents=[
@@ -530,7 +700,10 @@ deep_research = create_deep_agent(
             "name": "researcher",
             "description": "Fetch and summarize sources for one focused research question.",
             "model": RESEARCH_MODEL,
-            "system_prompt": "Return concise evidence with source URLs and caveats.",
+            "system_prompt": (
+                "Fetch and summarize one focused research question. Return concise evidence "
+                "with source URLs, dates when visible, and caveats. Do not make final recommendations."
+            ),
             "tools": [
                 list_langchain_doc_sources,
                 fetch_allowed_url,
@@ -542,7 +715,10 @@ deep_research = create_deep_agent(
             "name": "critic",
             "description": "Check research conclusions for unsupported claims.",
             "model": CRITIC_MODEL,
-            "system_prompt": "Flag weak sourcing, overclaims, and missing counterevidence.",
+            "system_prompt": (
+                "Flag weak sourcing, overclaims, missing counterevidence, stale information, "
+                "and unsupported recommendations."
+            ),
             "tools": [utc_now],
         },
     ],
@@ -552,16 +728,35 @@ deep_research = create_deep_agent(
 
 llm_wiki = create_deep_agent(
     model=DEFAULT_MODEL,
-    tools=[utc_now, retrieve_project_context, fetch_allowed_url],
+    tools=[
+        utc_now,
+        retrieve_project_context,
+        fetch_allowed_url,
+        list_agent_fleet,
+        agent_readiness_report,
+    ],
     backend=_build_backend("llm_wiki"),
     system_prompt=_prompt(
         "a persistent LLM wiki maintainer",
         (
             "Maintain durable project knowledge under /memories/wiki/. For each useful finding, "
             "write short, factual wiki notes with source hints. For questions, read relevant wiki "
-            "notes first, then fetch allowed sources only when needed."
+            "notes first, then fetch allowed sources only when needed. Never store secrets or "
+            "large transcripts. If asked to remember something, summarize it into durable facts."
         ),
     ),
+    subagents=[
+        {
+            "name": "wiki-auditor",
+            "description": "Review wiki notes for stale, duplicated, or unsafe memory.",
+            "model": CRITIC_MODEL,
+            "system_prompt": (
+                "Review proposed memory notes. Reject secrets, private credentials, transient "
+                "chat noise, unsupported claims, and duplicates."
+            ),
+            "tools": [utc_now, retrieve_project_context],
+        }
+    ],
     interrupt_on={"write_file": True, "edit_file": True},
     name="llm_wiki",
 )

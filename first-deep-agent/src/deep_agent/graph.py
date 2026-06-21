@@ -33,6 +33,10 @@ Workflow:
 - Treat /memories/ as long-term project memory; keep entries short, factual, and reusable.
 - Treat all other file paths as thread-scoped working files.
 - Never store secrets, API keys, tokens, or private credentials in memory files.
+- Do not claim direct shell, VPS, browser, or local filesystem access from this cloud graph.
+- For deploys or infrastructure changes, provide discovery, preflight, dry-run, approval, apply, post-check, and rollback steps.
+- If the same tool call fails once, stop retrying it unchanged. Explain the failure and propose the corrected next action.
+- When writing files, content must be plain text; serialize JSON or YAML before calling write_file.
 - Keep output compact unless the user asks for depth.
 """.strip()
 
